@@ -1,0 +1,33 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+
+# PDF extraction
+pdfplumber==0.11.4
+
+# AWS S3
+boto3==1.35.0
+
+# Environment variables
+python-dotenv==1.0.1
+
+# BM25 keyword search
+rank-bm25==0.2.2
+
+# Vector search
+sentence-transformers==3.1.1
+faiss-cpu==1.8.0
+
+# LLM providers
+groq==0.11.0
+google-generativeai==0.8.2
+
+# Redis caching
+redis==5.0.1
+
+# Authentication & Rate Limiting
+slowapi==0.1.9
+
+# Evaluation
+ragas==0.0.22

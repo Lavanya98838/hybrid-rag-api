@@ -1,0 +1,14 @@
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+*.md
+.DS_Store
+.vscode/
+.idea/
+indexes/
+*.pdf
+result.json

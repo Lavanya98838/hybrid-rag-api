@@ -1,3 +1,6 @@
+# NumPy pin for faiss compatibility (must be <2 for faiss-cpu 1.8.0)
+numpy<2
+
 # Web framework
 fastapi==0.115.0
 uvicorn[standard]==0.30.6

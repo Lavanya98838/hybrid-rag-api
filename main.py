@@ -45,12 +45,24 @@ def load_existing_indexes():
             doc_id = index_path.name
             try:
                 retriever = HybridRetriever.load(str(index_path))
+
+                # Try to restore filename from saved info, fall back to doc_id
+                info_path = index_path / "info.json"
+                filename = doc_id
+                if info_path.exists():
+                    import json
+                    info = json.loads(info_path.read_text())
+                    filename = info.get("filename", doc_id)
+
                 document_store[doc_id] = {
                     "doc_id": doc_id,
+                    "filename": filename,
                     "retriever": retriever,
+                    "chunks": retriever.chunk_metadata,
+                    "total_chunks": len(retriever.chunk_metadata),
                     "index_path": str(index_path),
                 }
-                print(f"Loaded index for doc_id: {doc_id}")
+                print(f"Loaded index for doc_id: {doc_id} ({filename})")
             except Exception as e:
                 print(f"Failed to load index {doc_id}: {e}")
 
@@ -65,6 +77,7 @@ def startup_event():
 # ─────────────────────────────────────────────
 
 @app.get("/", tags=["Health"])
+@app.head("/", tags=["Health"], include_in_schema=False)
 def root():
     return {"status": "ok", "message": "Hybrid RAG API is running 🚀"}
 
@@ -126,6 +139,10 @@ async def upload_pdf(file: UploadFile = File(...)):
     doc_id = s3_result["doc_id"]
     index_path = INDEX_DIR / doc_id
     retriever.save(str(index_path))
+    # Save document info for reload on restart
+    import json
+    info_path = index_path / "info.json"
+    info_path.write_text(json.dumps({"filename": file.filename}))
 
     # Store in memory
     document_store[doc_id] = {
@@ -250,6 +267,9 @@ async def upload_bulk(files: list[UploadFile] = File(...)):
             doc_id = s3_result["doc_id"]
             index_path = INDEX_DIR / doc_id
             retriever.save(str(index_path))
+            import json
+            info_path = index_path / "info.json"
+            info_path.write_text(json.dumps({"filename": file.filename}))
 
             document_store[doc_id] = {
                 "doc_id": doc_id,
@@ -287,7 +307,7 @@ async def upload_bulk(files: list[UploadFile] = File(...)):
 class AskRequest(BaseModel):
     doc_id: str
     query: str
-    model: str = "groq"  # "groq" or "gemini"
+    model: str = "cascade"  # "groq", "gemini", or "cascade"
     top_k: int = 5
 
 @app.post("/ask", tags=["Q&A"])
@@ -306,8 +326,8 @@ def ask_question(request: AskRequest):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
 
-    if request.model not in ("groq", "gemini"):
-        raise HTTPException(status_code=400, detail="Model must be 'groq' or 'gemini'.")
+    if request.model not in ("groq", "gemini", "cascade"):
+        raise HTTPException(status_code=400, detail="Model must be 'groq', 'gemini', or 'cascade'.")
 
     doc = document_store[request.doc_id]
     retriever = doc["retriever"]
@@ -344,7 +364,7 @@ def ask_question(request: AskRequest):
 class AskStreamRequest(BaseModel):
     doc_id: str
     query: str
-    model: str = "groq"  # "groq" or "gemini"
+    model: str = "cascade"  # "groq", "gemini", or "cascade"
     top_k: int = 5
 
 @app.post("/ask/stream", tags=["Q&A"])
@@ -362,7 +382,7 @@ async def ask_question_stream(request: AskStreamRequest):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
 
-    if request.model not in ("groq", "gemini"):
+    if request.model not in ("groq", "gemini", "cascade"):
         raise HTTPException(status_code=400, detail="Model must be 'groq' or 'gemini'.")
 
     doc = document_store[request.doc_id]

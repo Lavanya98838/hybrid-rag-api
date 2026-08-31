@@ -6,6 +6,7 @@ COPY requirements.txt .
 
 # Install CPU-only torch first to avoid pulling GPU/CUDA deps (saves ~1GB)
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir "numpy<2" && \
     pip install --no-cache-dir --retries 5 -r requirements.txt
 
 COPY . .

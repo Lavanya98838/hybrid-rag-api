@@ -25,9 +25,9 @@ Question: {query}
 Answer:"""
 
 
-def generate_answer(query: str, chunks: List[Dict[str, Any]], model: str = "groq") -> str:
+def generate_answer(query: str, chunks: List[Dict[str, Any]], model: str = "cascade") -> str:
     """
-    Generate answer using Groq or Gemini (non-streaming).
+    Generate answer using Groq, Gemini, or Cascade (Groq drafts → Gemini refines).
     """
     prompt = _build_prompt(query, chunks)
     
@@ -35,14 +35,17 @@ def generate_answer(query: str, chunks: List[Dict[str, Any]], model: str = "groq
         return _call_groq(prompt)
     elif model == "gemini":
         return _call_gemini(prompt)
+    elif model == "cascade":
+        return _call_cascade(prompt)
     else:
-        raise ValueError(f"Unknown model: {model}. Use 'groq' or 'gemini'.")
+        raise ValueError(f"Unknown model: {model}. Use 'groq', 'gemini', or 'cascade'.")
 
 
-def generate_answer_stream(query: str, chunks: List[Dict[str, Any]], model: str = "groq") -> Generator[str, None, None]:
+def generate_answer_stream(query: str, chunks: List[Dict[str, Any]], model: str = "cascade") -> Generator[str, None, None]:
     """
-    Generate answer using Groq or Gemini with streaming (SSE).
+    Generate answer using Groq, Gemini, or Cascade with streaming (SSE).
     Yields tokens as they arrive.
+    Cascade: Groq drafts silently → Gemini streams the refined answer.
     """
     prompt = _build_prompt(query, chunks)
     
@@ -50,8 +53,10 @@ def generate_answer_stream(query: str, chunks: List[Dict[str, Any]], model: str 
         yield from _call_groq_stream(prompt)
     elif model == "gemini":
         yield from _call_gemini_stream(prompt)
+    elif model == "cascade":
+        yield from _call_cascade_stream(prompt)
     else:
-        yield f"Unknown model: {model}. Use 'groq' or 'gemini'."
+        yield f"Unknown model: {model}. Use 'groq', 'gemini', or 'cascade'."
 
 
 def _call_groq(prompt: str) -> str:
@@ -106,7 +111,7 @@ def _call_groq_stream(prompt: str) -> Generator[str, None, None]:
 
 
 def _call_gemini(prompt: str) -> str:
-    """Call Gemini API with gemini-1.5-flash (non-streaming)."""
+    """Call Gemini API with gemini-2.0-flash (non-streaming)."""
     if not GEMINI_API_KEY:
         return "⚠️ GEMINI_API_KEY not set in .env file."
     
@@ -114,7 +119,7 @@ def _call_gemini(prompt: str) -> str:
         import google.generativeai as genai
         genai.configure(api_key=GEMINI_API_KEY)
         
-        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
@@ -137,7 +142,7 @@ def _call_gemini_stream(prompt: str) -> Generator[str, None, None]:
         import google.generativeai as genai
         genai.configure(api_key=GEMINI_API_KEY)
         
-        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
@@ -152,3 +157,84 @@ def _call_gemini_stream(prompt: str) -> Generator[str, None, None]:
                 yield chunk.text
     except Exception as e:
         yield f"⚠️ Gemini error: {str(e)}"
+
+
+def _call_cascade(prompt: str) -> str:
+    """
+    Cascade: Groq generates a draft → Gemini refines/structures the answer.
+    Falls back to the other model if one fails.
+    """
+    draft = None
+
+    # Step 1: Groq drafts the answer
+    if GROQ_API_KEY:
+        draft = _call_groq(prompt)
+        if draft.startswith("⚠️"):
+            draft = None
+
+    # Step 2: Gemini refines/structures the draft
+    if GEMINI_API_KEY:
+        refine_prompt = (
+            f"Refine and structure the following answer to make it clear, "
+            f"well-organized, and professional. Keep all factual information "
+            f"intact — do not add or remove any facts.\n\n"
+            f"Draft Answer:\n{draft if draft else '(no draft available)'}\n\n"
+            f"Structured Answer:"
+        ) if draft else prompt
+
+        result = _call_gemini(refine_prompt)
+        if not result.startswith("⚠️"):
+            return result
+
+    # Fallback: return whatever we have
+    if draft:
+        return draft
+
+    return "⚠️ Both Groq and Gemini failed to generate an answer."
+
+
+def _call_cascade_stream(prompt: str) -> Generator[str, None, None]:
+    """
+    Cascade streaming: Groq generates full draft silently, then Gemini
+    streams the refined/structured answer token by token.
+    """
+    draft = None
+
+    # Step 1: Groq drafts the answer (silently, no yield)
+    if GROQ_API_KEY:
+        try:
+            import httpx
+            from groq import Groq
+
+            http_client = httpx.Client(timeout=60.0)
+            client = Groq(api_key=GROQ_API_KEY, http_client=http_client)
+
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=1024,
+            )
+            draft = response.choices[0].message.content.strip()
+        except Exception as e:
+            draft = None
+
+    # Step 2: Gemini streams the refined answer
+    if GEMINI_API_KEY:
+        refine_prompt = (
+            f"Refine and structure the following answer to make it clear, "
+            f"well-organized, and professional. Keep all factual information "
+            f"intact — do not add or remove any facts.\n\n"
+            f"Draft Answer:\n{draft if draft else '(no draft available)'}\n\n"
+            f"Structured Answer:"
+        ) if draft else prompt
+
+        yield from _call_gemini_stream(refine_prompt)
+        return
+
+    # Fallback: yield the Groq draft if Gemini is unavailable
+    if draft:
+        yield draft
+        return
+
+    yield "⚠️ Both Groq and Gemini failed to generate an answer."

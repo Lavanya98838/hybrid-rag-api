@@ -4,6 +4,8 @@ import shutil
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -11,7 +13,6 @@ from storage import upload_to_s3, download_from_s3, delete_from_s3
 from extractor import extract_and_chunk
 from retriever import HybridRetriever
 from llm import generate_answer, generate_answer_stream
-from fastapi.responses import StreamingResponse
 
 load_dotenv()
 
@@ -73,11 +74,22 @@ def startup_event():
 
 
 # ─────────────────────────────────────────────
+# Serve Frontend
+# ─────────────────────────────────────────────
+
+app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
+
+@app.get("/", include_in_schema=False)
+def serve_frontend():
+    return FileResponse("frontend/index.html")
+
+
+# ─────────────────────────────────────────────
 # Health check
 # ─────────────────────────────────────────────
 
-@app.get("/", tags=["Health"])
-@app.head("/", tags=["Health"], include_in_schema=False)
+@app.get("/health", tags=["Health"])
+@app.head("/health", tags=["Health"], include_in_schema=False)
 def root():
     return {"status": "ok", "message": "Hybrid RAG API is running 🚀"}
 

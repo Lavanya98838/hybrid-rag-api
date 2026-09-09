@@ -26,9 +26,6 @@ Answer:"""
 
 
 def generate_answer(query: str, chunks: List[Dict[str, Any]], model: str = "cascade") -> str:
-    """
-    Generate answer using Groq, Gemini, or Cascade (Groq drafts → Gemini refines).
-    """
     prompt = _build_prompt(query, chunks)
     
     if model == "groq":
@@ -42,11 +39,6 @@ def generate_answer(query: str, chunks: List[Dict[str, Any]], model: str = "casc
 
 
 def generate_answer_stream(query: str, chunks: List[Dict[str, Any]], model: str = "cascade") -> Generator[str, None, None]:
-    """
-    Generate answer using Groq, Gemini, or Cascade with streaming (SSE).
-    Yields tokens as they arrive.
-    Cascade: Groq drafts silently → Gemini streams the refined answer.
-    """
     prompt = _build_prompt(query, chunks)
     
     if model == "groq":
@@ -60,7 +52,7 @@ def generate_answer_stream(query: str, chunks: List[Dict[str, Any]], model: str 
 
 
 def _call_groq(prompt: str) -> str:
-    """Call Groq API with llama-3.3-70b-versatile (non-streaming)."""
+    """Call Groq API with llama3-70b-8192 (non-streaming)."""
     if not GROQ_API_KEY:
         return "⚠️ GROQ_API_KEY not set in .env file."
     
@@ -72,7 +64,7 @@ def _call_groq(prompt: str) -> str:
         client = Groq(api_key=GROQ_API_KEY, http_client=http_client)
         
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama3-70b-8192",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=1024,
@@ -96,7 +88,7 @@ def _call_groq_stream(prompt: str) -> Generator[str, None, None]:
         client = Groq(api_key=GROQ_API_KEY, http_client=http_client)
         
         stream = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama3-70b-8192",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=1024,
@@ -166,13 +158,11 @@ def _call_cascade(prompt: str) -> str:
     """
     draft = None
 
-    # Step 1: Groq drafts the answer
     if GROQ_API_KEY:
         draft = _call_groq(prompt)
         if draft.startswith("⚠️"):
             draft = None
 
-    # Step 2: Gemini refines/structures the draft
     if GEMINI_API_KEY:
         refine_prompt = (
             f"Refine and structure the following answer to make it clear, "
@@ -186,7 +176,6 @@ def _call_cascade(prompt: str) -> str:
         if not result.startswith("⚠️"):
             return result
 
-    # Fallback: return whatever we have
     if draft:
         return draft
 
@@ -200,7 +189,6 @@ def _call_cascade_stream(prompt: str) -> Generator[str, None, None]:
     """
     draft = None
 
-    # Step 1: Groq drafts the answer (silently, no yield)
     if GROQ_API_KEY:
         try:
             import httpx
@@ -210,16 +198,15 @@ def _call_cascade_stream(prompt: str) -> Generator[str, None, None]:
             client = Groq(api_key=GROQ_API_KEY, http_client=http_client)
 
             response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="llama3-70b-8192",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=1024,
             )
             draft = response.choices[0].message.content.strip()
-        except Exception as e:
+        except Exception:
             draft = None
 
-    # Step 2: Gemini streams the refined answer
     if GEMINI_API_KEY:
         refine_prompt = (
             f"Refine and structure the following answer to make it clear, "
@@ -232,7 +219,6 @@ def _call_cascade_stream(prompt: str) -> Generator[str, None, None]:
         yield from _call_gemini_stream(refine_prompt)
         return
 
-    # Fallback: yield the Groq draft if Gemini is unavailable
     if draft:
         yield draft
         return

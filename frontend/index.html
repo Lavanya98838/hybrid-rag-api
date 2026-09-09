@@ -1343,7 +1343,7 @@ async function apiUploadBulk(files) {
 async function checkHealth() {
   const el = document.getElementById('statHealth');
   try {
-    const data = await apiGet('/');
+    const data = await apiGet('/health');
     el.innerHTML = `<span class="health-indicator"><span class="health-dot online"></span> Online</span>`;
     el.parentElement.querySelector('.stat-label').textContent = 'API Status';
   } catch {
